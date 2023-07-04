@@ -20,7 +20,7 @@
 
 ## CI/CD Pipeline
 - The CI/CD Pipeline capitalizes on a tailor-made Python script to scrutinize the details of the commit, enabling it to make adaptive decisions contingent on the identified changes.
-
+- A Custom solution was implemented in order handle the manual approval process via Github Issues.  
 ![CI/CD Pipeline](ci_cd_flowchart.png "CI/CD Pipeline")
 
 
