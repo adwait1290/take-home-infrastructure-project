@@ -1,4 +1,5 @@
 # Take Home Infrastructure Project
+## URL: http://dev-alb-1591090632.us-west-2.elb.amazonaws.com/
 ## Project Objective:
 ##### The chief objective of this project centered around the efficient deployment of a performance-centric Wordpress site onto ECS/EKS utilizing Terraform. Whilst speed was a pivotal point, there were several other key considerations that I aimed to holistically incorporate within this undertaking, including:
 - Experimenting with Terragrunt for efficient Terraform management.
@@ -21,6 +22,10 @@
 ## CI/CD Pipeline
 - The CI/CD Pipeline capitalizes on a tailor-made Python script to scrutinize the details of the commit, enabling it to make adaptive decisions contingent on the identified changes.
 - A Custom solution was implemented in order handle the manual approval process via Github Issues.  
+- Sample Deployment Approval Issue(https://github.com/adwait1290/take-home-infrastructure-project/issues/1)
+- Sample CI Run(https://github.com/adwait1290/take-home-infrastructure-project/actions/runs/5451273627)
+- Note: In the CI Run above, Only Infrastructure changes were detected so the Container Build process was skipped as intended.
+
 ![CI/CD Pipeline](ci_cd_flowchart.png "CI/CD Pipeline")
 
 
