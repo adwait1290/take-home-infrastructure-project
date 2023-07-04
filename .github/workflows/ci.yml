@@ -1,0 +1,167 @@
+name: CI/CD Pipeline
+
+# Event triggers
+on:
+  # Triggers the workflow on push or pull request events, only when there are changes in the WordPress directory
+  push:
+    branches:
+      - dev
+      - prod
+    paths:
+      - 'app/**'
+      - 'infra/**'
+  pull_request:
+    branches:
+      - dev
+      - prod
+    paths:
+      - 'app/**'
+      - 'infra/**'
+
+jobs:
+  # Job to run checks before deployment
+  check-path:
+    runs-on: ubuntu-latest
+    outputs:
+      infra_changed: ${{ steps.check.outputs.infra_changed }}
+      app_changed: ${{ steps.check.outputs.app_changed }}
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@v2
+      - id: check
+        run: |
+          pip install requests
+          echo "::set-output name=infra_changed::$(python .github/scripts/check-path.py '${{ secrets.GITHUB_TOKEN }}' ${{ github.repository }} ${{ github.sha }} 'infra')"
+          echo "::set-output name=app_changed::$(python .github/scripts/check-path.py '${{ secrets.GITHUB_TOKEN }}' ${{ github.repository }} ${{ github.sha }} 'app/')"
+        shell: bash
+  check:
+    needs: check-path
+    if: needs.check-path.outputs.infra_changed == 'true'
+    # Displays 'Run checks before deploy' as the job name in GitHub Actions UI
+    name: Run checks before deploy
+    # Specifies the type of runner that the job will run on
+    runs-on: ubuntu-latest
+    # Outputs the result of the terraform update check
+    steps:
+      # Sets up Terraform CLI in your GitHub Actions workflow
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+
+      # Installs Terragrunt CLI
+      - name: Install Terragrunt
+        id: tg-install
+        run: |
+          TERRAGRUNT_VERSION='0.31.1'
+          TERRAGRUNT_DIRECTORY=/usr/local/bin
+          TERRAGRUNT_URL="https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}/terragrunt_linux_amd64"
+          sudo wget -q -O ${TERRAGRUNT_DIRECTORY}/terragrunt ${TERRAGRUNT_URL}
+          sudo chmod +x ${TERRAGRUNT_DIRECTORY}/terragrunt
+          terragrunt -version
+      # Configures AWS Credentials for the interaction with AWS Services
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: '${{ secrets.AWS_ACCESS_KEY_ID }}'
+          aws-secret-access-key: '${{ secrets.AWS_SECRET_ACCESS_KEY }}'
+          aws-region: '${{ secrets.AWS_REGION }}'
+
+        # Verifies if there's a need to update the terraform
+      - name: Verify terraform plan
+        id: verify
+        run: |
+          ls
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            cd infra/environments/prod
+          else
+            cd infra/environments/dev
+          fi
+          PLANNED_VALUES=$(terragrunt plan)
+          echo "$PLANNED_VALUES"
+
+        shell: bash
+  hold:
+    needs: check-path
+    if: needs.check-path.outputs.infra_changed == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: hold
+    steps:
+      - name: hold for manual approval
+        run: echo "Held for approval"
+  apply:
+    needs: hold
+    if: needs.check-path.outputs.infra_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+
+      - name: Install Terragrunt
+        run: |
+          TERRAGRUNT_VERSION='0.31.1'
+          TERRAGRUNT_DIRECTORY=/usr/local/bin
+          TERRAGRUNT_URL="https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}/terragrunt_linux_amd64"
+          sudo wget -q -O ${TERRAGRUNT_DIRECTORY}/terragrunt ${TERRAGRUNT_URL}
+          sudo chmod +x ${TERRAGRUNT_DIRECTORY}/terragrunt
+          terragrunt -version
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: '${{ secrets.AWS_ACCESS_KEY_ID }}'
+          aws-secret-access-key: '${{ secrets.AWS_SECRET_ACCESS_KEY }}'
+          aws-region: '${{ secrets.AWS_REGION }}'
+
+      - name: Run terragrunt apply
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            cd infra/environments/prod
+          else
+            cd infra/environments/dev
+          fi
+          terragrunt apply -auto-approve
+
+
+  build:
+    name: Build Docker Image and Push to ECR
+    runs-on: ubuntu-latest
+    needs: check-path
+    if: needs.check-path.outputs.app_changed == 'true'
+
+    steps:
+      - name: Skip Build if no WordPress changes
+        run: echo "No changes to WordPress. Skipping build!"
+        if: needs.check-path.outputs.app_changed == 'true'
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: '${{ secrets.AWS_ACCESS_KEY_ID }}'
+          aws-secret-access-key: '${{ secrets.AWS_SECRET_ACCESS_KEY }}'
+          aws-region: '${{ secrets.AWS_REGION }}'
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push Docker image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets[github.ref == 'refs/heads/main' && 'PROD_ECR_REPOSITORY' || github.ref == 'refs/heads/staging' && 'STAGING_ECR_REPOSITORY' || github.ref == 'refs/heads/dev' && 'DEV_ECR_REPOSITORY'] }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest  ./app
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+      - name: Force new deployment
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            aws ecs update-service --cluster limble-cmms-take-home-prod-cluster --service limble-cmms-take-home-prod-service --force-new-deployment
+          else
+            aws ecs update-service --cluster limble-cmms-take-home-dev-cluster --service limble-cmms-take-home-dev-service --force-new-deployment
+          fi

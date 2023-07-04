@@ -1,0 +1,31 @@
+# Terraform and Terragrunt specific
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+**/.terragrunt-cache/
+.terragrunt.lock.hcl
+terragrunt
+
+# OS specific
+.DS_Store # macOS artifacts
+.history   # File history
+
+# IDE specific (IntelliJ and VSCode)
+.idea/
+.idea_modules
+*.iml
+.vscode/
+
+# Build artifacts
+*.out
+*/build/
+out/
+
+# Ruby artifacts
+.bundle
+.ruby-version
+
+# Misc
+*.sw?
+vendor
