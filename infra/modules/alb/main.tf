@@ -16,7 +16,7 @@ resource "aws_lb" "main" {
   load_balancer_type = "application"
   # A security group associated with the Load Balancer
   security_groups    = [var.alb_sg_id]
-  # Subnets where the Load Balancer will span across
+  # Subnets where the Load Balancer will span acrosss
   subnets            = var.public_subnet_ids
   # Deletion protection is enabled to prevent unintentional deletion of the lb
   enable_deletion_protection = true
